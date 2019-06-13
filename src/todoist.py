@@ -16,7 +16,6 @@ class Todoist(kp.Plugin):
     REGEX_TODO_TXT = r'(\d+)\.(.+)'
     REGEX_LABEL = r'(\w+) : (.+)'
     ITEM_EASYSEARCH = kp.ItemCategory.USER_BASE + 1
-    DEFAULT_TOKEN = "ec040780698fb9ba22aca4f0ee8ed1ffc2fbbe6a"
 
     add_task_label = DEFAULT_ADD_TASK_LABEL
     todo_path = DEFAULT_TODO_PATH
@@ -31,7 +30,7 @@ class Todoist(kp.Plugin):
         self.delete_task_label = settings.get_stripped("delete_task_label", "main", self.DEFAULT_DELETE_TASK_LABEL)
         self.todo_path = os.path.abspath(settings.get_stripped("todo_path", "main", self.DEFAULT_TODO_PATH))
         self.todo_path = os.path.join(settings.get_stripped("todo_path", "main", self.DEFAULT_TODO_PATH), 'todo.txt')
-        self.user_token = settings.get_stripped("user_token", "main", self.DEFAULT_TOKEN)
+        self.user_token = settings.get_stripped("user_token", "main", "")
         self.api = TodoistAPI(self.user_token)
         self.api.sync()
 
