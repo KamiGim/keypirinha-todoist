@@ -31,13 +31,13 @@ class Todoist(kp.Plugin):
 
         self.api = TodoistAPI(self.user_token)
         self.api.sync()
-        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.DEFAULT_PROJECT_NAME), None)
+        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.project_name), None)
         self.project_id = self.project.data["id"]
         self.items = [item for item in self.api.state['items'] if item.data['project_id'] == self.project_id and 'checked' in item.data and item.data['checked'] == 0]
 
     def _sync(self):
         self.api.sync()
-        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.DEFAULT_PROJECT_NAME), None)
+        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.project_name), None)
         self.project_id = self.project.data["id"]
         self.items = [item for item in self.api.state['items'] if item.data['project_id'] == self.project_id and 'checked' in item.data and item.data['checked'] == 0]
 
