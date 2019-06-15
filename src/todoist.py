@@ -108,7 +108,6 @@ class Todoist(kp.Plugin):
 
     def on_execute(self, item, action):
         target = int(item.target())
-        print(target)
         if item.category() == self.ITEMCAT_ADD and item.short_desc() != None:
             item = self.api.items.add(item.short_desc(), project_id=target)
             self.api.commit()
