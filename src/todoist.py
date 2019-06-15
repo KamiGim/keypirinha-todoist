@@ -6,19 +6,17 @@ import keypirinha_util as kpu
 import keypirinha_net as kpnet
 from todoist.api import TodoistAPI
 
-
 class Todoist(kp.Plugin):
 
     DEFAULT_ADD_TASK_LABEL = "atodoist"
-    DEFAULT_DELETE_TASK_LABEL = "dtodoist"
-    DEFAULT_TODO_PATH = os.environ['HOMEPATH']
-    REGEX_INPUT = r'(\S+)\s(.+)'
-    REGEX_TODO_TXT = r'(\d+)\.(.+)'
-    REGEX_LABEL = r'(\w+) : (.+)'
-    ITEM_EASYSEARCH = kp.ItemCategory.USER_BASE + 1
+    DEFAULT_LIST_ALL_TASKS = "todoist"
+    DEFAULT_PROJECT_NAME = "Inbox"
 
-    add_task_label = DEFAULT_ADD_TASK_LABEL
-    todo_path = DEFAULT_TODO_PATH
+    ITEMCAT_ADD = kp.ItemCategory.USER_BASE + 1
+    ITEMCAT_LIST = kp.ItemCategory.USER_BASE + 2
+
+    ACTION_COMPLETE_TASK = "complete_task"
+    ACTION_DELETE_TASK = "delete_task"
 
     def __init__(self):
         super().__init__()
@@ -27,85 +25,106 @@ class Todoist(kp.Plugin):
 
         settings = self.load_settings()
         self.add_task_label = settings.get_stripped("add_task_label", "main", self.DEFAULT_ADD_TASK_LABEL)
-        self.delete_task_label = settings.get_stripped("delete_task_label", "main", self.DEFAULT_DELETE_TASK_LABEL)
-        self.todo_path = os.path.abspath(settings.get_stripped("todo_path", "main", self.DEFAULT_TODO_PATH))
-        self.todo_path = os.path.join(settings.get_stripped("todo_path", "main", self.DEFAULT_TODO_PATH), 'todo.txt')
+        self.list_tasks_label = settings.get_stripped("list_tasks_label", "main", self.DEFAULT_LIST_ALL_TASKS)
         self.user_token = settings.get_stripped("user_token", "main", "")
+        self.project_name = settings.get_stripped("project_name", "main", self.DEFAULT_PROJECT_NAME)
+
         self.api = TodoistAPI(self.user_token)
         self.api.sync()
+        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.DEFAULT_PROJECT_NAME), None)
+        self.project_id = self.project.data["id"]
+        self.items = [item for item in self.api.state['items'] if item.data['project_id'] == self.project_id and 'checked' in item.data and item.data['checked'] == 0]
+
+    def _sync(self):
+        self.api.sync()
+        self.project = next((p for p in self.api.state['projects'] if p.data["name"] == self.DEFAULT_PROJECT_NAME), None)
+        self.project_id = self.project.data["id"]
+        self.items = [item for item in self.api.state['items'] if item.data['project_id'] == self.project_id and 'checked' in item.data and item.data['checked'] == 0]
 
     def on_start(self):
         self.dbg("On Start")
         self._read_config()
 
+        # register actions
+        actions = [
+            self.create_action(
+                name=self.ACTION_COMPLETE_TASK,
+                label="Complete your task",
+                short_desc="Complete your task"),
+            self.create_action(
+                name=self.ACTION_DELETE_TASK,
+                label="Delete your task",
+                short_desc="Delete your task")
+        ]
+        self.set_actions(self.ITEMCAT_LIST, actions)
 
     def on_catalog(self):
-        pass
+        self.set_catalog([
+            self.create_item(
+                category=self.ITEMCAT_LIST,
+                label=self.list_tasks_label,
+                short_desc="Your To-Do List",
+                target=self.list_tasks_label,
+                args_hint=kp.ItemArgsHint.REQUIRED,
+                hit_hint=kp.ItemHitHint.NOARGS
+            ),
+            self.create_item(
+                category=self.ITEMCAT_ADD,
+                label=self.add_task_label,
+                short_desc="Add To-Do List",
+                target=self.list_tasks_label,
+                args_hint=kp.ItemArgsHint.REQUIRED,
+                hit_hint=kp.ItemHitHint.NOARGS
+            ),
+        ])
 
     def on_suggest(self, user_input, items_chain):
-        input = re.search(self.REGEX_INPUT, user_input)
         suggestions = []
-
-        if input is None:
-            return None
-
-        if self.add_task_label == input.group(1) and len(input.groups()) == 2:
-
-            term = input.group(2)
-
-            target = term.strip().format(q = term.strip())
-
-            suggest_label = self.add_task_label + ' : ' + term + ' to your todo.txt.'
-
-            suggestions.append(self.create_item(
-                category=self.ITEM_EASYSEARCH,
-                label = suggest_label,
-                short_desc=target,
-                target=target,
-                args_hint = kp.ItemArgsHint.FORBIDDEN,
-                hit_hint = kp.ItemHitHint.IGNORE,
-                loop_on_suggest = True
-            ))
-            self.set_suggestions(suggestions, kp.Match.DEFAULT, kp.Sort.NONE)
-
-        if self.delete_task_label == input.group(1) and len(input.groups()) == 2:
-            term = input.group(2)
-            term.isdigit()
-            if term.isdigit() and int(term) != 0:
-                suggest_label = self.delete_task_label + ' : delete ' + term + ' task from your todo.txt.'
+        match = kp.Match.FUZZY
+        if len(items_chain) > 0:
+            if items_chain[0].category() == self.ITEMCAT_LIST:
+                self._sync()
+                for item in self.items:
+                    suggestions.append(self.create_item(
+                        category=self.ITEMCAT_LIST,
+                        label=item.data['content'],
+                        short_desc=item.data['content'],
+                        target=str(item.data['id']),
+                        args_hint=kp.ItemArgsHint.FORBIDDEN,
+                        hit_hint=kp.ItemHitHint.IGNORE,
+                    ))
+            elif items_chain[0].category() == self.ITEMCAT_ADD:
+                match = kp.Match.ANY
                 suggestions.append(self.create_item(
-                    category=self.ITEM_EASYSEARCH,
-                    label = suggest_label,
-                    short_desc=term,
-                    target=term,
-                    args_hint = kp.ItemArgsHint.FORBIDDEN,
-                    hit_hint = kp.ItemHitHint.IGNORE,
-                    loop_on_suggest = True
+                    category=self.ITEMCAT_ADD,
+                    label="Add Task",
+                    short_desc=user_input,
+                    target=str(self.project_id),
+                    args_hint=kp.ItemArgsHint.FORBIDDEN,
+                    hit_hint=kp.ItemHitHint.IGNORE,
                 ))
-                self.set_suggestions(suggestions, kp.Match.DEFAULT, kp.Sort.NONE)
+
+        self.set_suggestions(suggestions, match, kp.Sort.NONE)
 
     def on_execute(self, item, action):
-        label = re.search(self.REGEX_LABEL, item.label())
-        action = label.group(1);
-        target = item.target()
-        print(self.api)
-
-        if action == self.add_task_label:
-            item = self.api.items.add(target)
+        target = int(item.target())
+        print(target)
+        if item.category() == self.ITEMCAT_ADD and item.short_desc() != None:
+            item = self.api.items.add(item.short_desc(), project_id=target)
             self.api.commit()
-
-        if action == self.delete_task_label:
-            with open(self.todo_path, "r") as f:
-                lines = f.readlines()
-                with open(self.todo_path, "w") as f:
-                    count = 1
-                    for line in lines:
-                        if count < int(target):
-                            f.write(line)
-                        if count > int(target):
-                            text = re.search(self.REGEX_TODO_TXT, line)
-                            f.write(str(count - 1) + '.' + text.group(2) + "\n")
-                        count += 1
+        else:
+            if action == self.ACTION_COMPLETE_TASK:
+                item = self.api.items.get_by_id(target)
+                item.complete()
+                self.api.commit()
+            elif action == self.ACTION_DELETE_TASK:
+                item = self.api.items.get_by_id(target)
+                item.delete()
+                self.api.commit()
+            else:
+                item = self.api.items.get_by_id(target)
+                item.complete()
+                self.api.commit()
 
     def on_activated(self):
         pass
@@ -116,10 +135,3 @@ class Todoist(kp.Plugin):
     def on_events(self, flags):
         if flags & kp.Events.PACKCONFIG:
             self.on_start()
-
-    def _set_action(self, name, label, desc):
-        return self.create_action(
-        name = name,
-        label = label,
-        short_desc = desc
-        )
